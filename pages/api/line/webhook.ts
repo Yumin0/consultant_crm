@@ -128,8 +128,35 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
     return
   }
 
+  if (text.includes('查顧問') || text.includes('所有顧問')) {
+    await handleConsultantSelector(replyToken)
+    return
+  }
+
   // 4. Default: search
   await handleSearch(replyToken, text)
+}
+
+async function handleConsultantSelector(replyToken: string) {
+  const { data: consultants } = await supabase
+    .from('consultants')
+    .select('id, name')
+    .order('name')
+  await replyMessage(replyToken, [{
+    type: 'text',
+    text: '請選擇要查看的顧問：',
+    quickReply: {
+      items: (consultants ?? []).slice(0, 13).map(c => ({
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: c.name.slice(0, 20),
+          data: `action=consultant_clients&id=${c.id}&name=${encodeURIComponent(c.name)}`,
+          displayText: c.name,
+        },
+      })),
+    },
+  }])
 }
 
 async function handleMyClients(replyToken: string, consultant: { id: string; name: string }) {
@@ -206,6 +233,13 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
     case 'my_clients':
       await handleMyClients(replyToken, consultant)
       break
+
+    case 'consultant_clients': {
+      const targetId = params.get('id')!
+      const targetName = decodeURIComponent(params.get('name') ?? '未知顧問')
+      await handleMyClients(replyToken, { id: targetId, name: targetName })
+      break
+    }
 
     case 'search':
       await setSession(lineUserId, 'awaiting_search', {})
