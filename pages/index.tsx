@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import type { ColumnInfo } from './api/schema';
 
@@ -13,6 +13,29 @@ export default function Home() {
 
   const [primaryKeys, setPrimaryKeys] = useState<string[]>([]);
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
+
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [colPickerOpen, setColPickerOpen] = useState(false);
+  const colPickerRef = useRef<HTMLDivElement>(null);
+
+  const lsKey = (t: string) => `crm_hidden_cols_${t}`;
+
+  const saveHiddenCols = (t: string, hidden: Set<string>) => {
+    if (hidden.size === 0) localStorage.removeItem(lsKey(t));
+    else localStorage.setItem(lsKey(t), JSON.stringify([...hidden]));
+  };
+
+  const loadHiddenCols = (t: string): Set<string> => {
+    try {
+      const raw = localStorage.getItem(lsKey(t));
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  };
+
+  const setAndSaveHiddenColumns = (t: string, hidden: Set<string>) => {
+    setHiddenColumns(hidden);
+    saveHiddenCols(t, hidden);
+  };
 
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>('create');
@@ -31,6 +54,26 @@ export default function Home() {
     fetchTables();
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (colPickerRef.current && !colPickerRef.current.contains(e.target as Node)) {
+        setColPickerOpen(false);
+      }
+    };
+    if (colPickerOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [colPickerOpen]);
+
+  const toggleColumn = (col: string) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(col)) next.delete(col);
+      else next.add(col);
+      saveHiddenCols(table, next);
+      return next;
+    });
+  };
+
   const loadTable = async (targetTable?: string) => {
     const t = targetTable ?? table;
     if (!t) return;
@@ -39,6 +82,7 @@ export default function Home() {
     setRows([]);
     setPrimaryKeys([]);
     setColumns([]);
+    setHiddenColumns(loadHiddenCols(t));
     try {
       const [dataRes, schemaRes] = await Promise.all([
         fetch(`/api/data?table=${encodeURIComponent(t)}`),
@@ -68,6 +112,8 @@ export default function Home() {
       : rows.length > 0
       ? Object.keys(rows[0])
       : [];
+
+  const visibleHeaders = headers.filter((h) => !hiddenColumns.has(h));
 
   const emptyForm = () => {
     const empty: Record<string, string> = {};
@@ -167,21 +213,84 @@ export default function Home() {
           {loading ? '載入中...' : '載入'}
         </button>
         {schemaLoaded && (
-          <button
-            onClick={openCreateModal}
-            style={{
-              marginLeft: 8,
-              backgroundColor: '#2563eb',
-              color: 'white',
-              border: 'none',
-              padding: '5px 14px',
-              borderRadius: 4,
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
-          >
-            + 新增資料
-          </button>
+          <>
+            <div ref={colPickerRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setColPickerOpen((o) => !o)}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  border: '1px solid #d1d5db',
+                  background: 'white',
+                  fontSize: 14,
+                }}
+              >
+                欄位顯示 {hiddenColumns.size > 0 ? `（隱藏 ${hiddenColumns.size}）` : ''}
+              </button>
+              {colPickerOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '110%',
+                    left: 0,
+                    zIndex: 100,
+                    background: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 6,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                    padding: '10px 14px',
+                    minWidth: 180,
+                    maxHeight: 320,
+                    overflowY: 'auto',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 12 }}>
+                    <button
+                      onClick={() => setAndSaveHiddenColumns(table, new Set())}
+                      style={{ cursor: 'pointer', background: 'none', border: 'none', color: '#2563eb', padding: 0, fontSize: 12 }}
+                    >
+                      全部顯示
+                    </button>
+                    <button
+                      onClick={() => setAndSaveHiddenColumns(table, new Set(headers))}
+                      style={{ cursor: 'pointer', background: 'none', border: 'none', color: '#6b7280', padding: 0, fontSize: 12 }}
+                    >
+                      全部隱藏
+                    </button>
+                  </div>
+                  {headers.map((h) => (
+                    <label
+                      key={h}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 13 }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!hiddenColumns.has(h)}
+                        onChange={() => toggleColumn(h)}
+                      />
+                      {h}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={openCreateModal}
+              style={{
+                marginLeft: 8,
+                backgroundColor: '#2563eb',
+                color: 'white',
+                border: 'none',
+                padding: '5px 14px',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: 14,
+              }}
+            >
+              + 新增資料
+            </button>
+          </>
         )}
       </div>
 
@@ -202,7 +311,7 @@ export default function Home() {
           <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14 }}>
             <thead>
               <tr>
-                {headers.map((h) => (
+                {visibleHeaders.map((h) => (
                   <th
                     key={h}
                     style={{ border: '1px solid #ddd', padding: '8px 10px', textAlign: 'left', background: '#f3f4f6', whiteSpace: 'nowrap' }}
@@ -220,7 +329,7 @@ export default function Home() {
             <tbody>
               {rows.map((r, idx) => (
                 <tr key={idx} style={{ background: idx % 2 === 0 ? 'white' : '#f9fafb' }}>
-                  {headers.map((h) => (
+                  {visibleHeaders.map((h) => (
                     <td key={h} style={{ border: '1px solid #eee', padding: '8px 10px' }}>
                       {String(r[h] ?? '')}
                     </td>
