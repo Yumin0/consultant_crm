@@ -7,6 +7,33 @@ const supabase = createClient(
 )
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === 'POST') {
+    const { name, company, status, consultant_id, consultant_name } = req.body as {
+      name: string
+      company?: string
+      status?: string
+      consultant_id?: string
+      consultant_name?: string
+    }
+
+    if (!name?.trim()) return res.status(400).json({ error: '企業主名為必填' })
+
+    const payload: Record<string, unknown> = { '1. 企業主名': name.trim() }
+    if (company?.trim()) payload['2. 公司名稱'] = company.trim()
+    if (status?.trim()) payload['9. 月費合約現狀'] = status.trim()
+    if (consultant_id) payload['consultant_id'] = consultant_id
+    if (consultant_name?.trim()) payload['3. 執行顧問'] = consultant_name.trim()
+
+    const { data, error } = await supabase
+      .from('線上All企業主總表')
+      .insert(payload)
+      .select('id, "1. 企業主名"')
+      .single()
+
+    if (error) return res.status(500).json({ error: error.message })
+    return res.status(201).json(data)
+  }
+
   if (req.method !== 'GET') return res.status(405).end()
 
   const { search, consultant_id, status } = req.query

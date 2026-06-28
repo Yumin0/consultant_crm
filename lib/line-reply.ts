@@ -1,3 +1,9 @@
+// ─── LINE API 基礎設定 ───────────────────────────────────────────────────────
+// LINE_API：LINE Messaging API 的基底 URL
+// authHeaders()：組出帶有 Bearer Token 的 HTTP 標頭，呼叫 LINE API 時必須帶入
+// replyMessage()：用 replyToken 回覆訊息（只能在使用者發訊後 30 秒內使用）
+// pushMessage()：主動推播訊息給指定 userId（不需 replyToken，任何時間都可用）
+
 const LINE_API = 'https://api.line.me/v2/bot'
 
 function authHeaders() {
@@ -23,7 +29,15 @@ export async function pushMessage(userId: string, messages: object[]) {
   })
 }
 
-// ─── Status helpers ───────────────────────────────────────────────────────────
+// ─── 合約狀態：顏色對照 ──────────────────────────────────────────────────────
+// STATUS_COLOR：合約現狀關鍵字 → 顏色 hex 對照表
+//   '合約中'   → 綠色 #16a34a
+//   '續約'     → 藍色 #2563eb
+//   '退費'     → 紅色 #dc2626
+//   '暫停'     → 橘色 #d97706（截圖顯示的「合約暫停中」即套用此色）
+//   '過期未續' → 灰色 #6b7280
+// 修改顏色：直接改對應的 hex 值即可
+// statusColor()：傳入合約狀態字串，回傳對應顏色；若無符合則回傳灰色
 
 const STATUS_COLOR: Record<string, string> = {
   '合約中': '#16a34a',
@@ -40,6 +54,11 @@ function statusColor(s: string | null): string {
   }
   return '#6b7280'
 }
+
+// ─── 時間格式工具 ────────────────────────────────────────────────────────────
+// relativeTime()：將 ISO 時間轉為「今天 / 昨天 / N 天前 / N 週前 / N 個月前」
+//   顯示在客戶卡片右下角的最後互動時間
+// formatDate()：將 ISO 時間轉為「M/D HH:MM」格式，顯示在互動紀錄條目裡
 
 function relativeTime(iso: string | null): string {
   if (!iso) return '無紀錄'
@@ -58,7 +77,11 @@ function formatDate(iso: string): string {
   })
 }
 
-// ─── Flex Message builders ────────────────────────────────────────────────────
+// ─── 身份綁定：顧問選擇選單 ──────────────────────────────────────────────────
+// buildBindQuickReply()：當使用者首次使用 LINE Bot 時，
+//   顯示「你好！請問你是哪位顧問？」並列出顧問快速回覆按鈕（最多 13 位）
+// 修改歡迎文字：改 text 欄位
+// 修改顯示顧問數量上限：改 .slice(0, 13) 的數字（LINE 最多支援 13 個 quickReply items）
 
 export function buildBindQuickReply(consultants: { id: string; name: string }[]) {
   return {
@@ -86,6 +109,27 @@ type ClientRow = {
   'Issue（偏離狀態）': string | null
   latest_log_at?: string | null
 }
+
+// ─── 客戶列表：Flex Message Carousel ─────────────────────────────────────────
+// buildClientListFlex()：產生「查看顧問客戶列表」的 Flex Message
+//
+// 每張卡片（bubble）結構：
+//   body（卡片內容）
+//     ├─ 企業主名    → weight: 'bold', size: 'md', color: '#111827'（深灰黑）
+//     ├─ 公司名稱    → size: 'sm', color: '#6b7280'（灰色）
+//     └─ 狀態列      → 水平排列
+//          ├─ 合約現狀（左）→ 顏色由 statusColor() 決定
+//          ├─ ⚠ 偏離（中，有偏離狀態才顯示）→ color: '#f97316'（橘色）
+//          └─ 最後互動時間（右）→ color: '#9ca3af'（淺灰）
+//
+//   footer（底部按鈕）
+//     ├─ 「查看」按鈕  → style: 'link'（無背景）
+//     └─ 「新增紀錄」  → style: 'primary', color: '#2563eb'（藍色）
+//          修改按鈕顏色：改 color 欄位的 hex 值
+//
+// 若只有 1 位客戶 → 顯示單一 bubble；2 位以上 → 顯示 carousel（左右滑動）
+// 修改卡片大小：改 size: 'kilo'（可選 nano / micro / kilo / mega / giga）
+// 修改卡片內距：改 paddingAll: '16px'
 
 export function buildClientListFlex(clients: ClientRow[], title: string) {
   const bubbles = clients.map(c => ({
@@ -194,6 +238,31 @@ type ClientDetail = {
   'Action（處置）': string | null
 }
 
+// ─── 客戶詳情：Flex Message Bubble ───────────────────────────────────────────
+// buildClientDetailFlex()：產生「查看單一客戶詳情」的 Flex Message
+//
+// 卡片三層結構：
+//   header（標題列）→ 深藍背景 #1d4ed8
+//     ├─ 企業主名  → 白色 #ffffff, weight: 'bold', size: 'lg'
+//     └─ 公司名稱  → 淺藍 #bfdbfe, size: 'sm'
+//        修改標題背景色：改 backgroundColor: '#1d4ed8'
+//
+//   body（主內容）
+//     ├─ 合約現狀（水平列）→ 標籤灰色 #6b7280，值由 statusColor() 上色
+//     ├─ 學員動態（水平列）→ 標籤灰色，值深灰 #374151
+//     ├─ ⚠ 偏離狀態區塊（有才顯示）→ 橘底 #fff7ed，文字 #c2410c
+//     ├─ 處置方式區塊（有才顯示） → 藍底 #eff6ff，文字 #1d4ed8
+//     ├─ 分隔線
+//     └─ 最近互動紀錄清單
+//          每筆紀錄（log）
+//            ├─ 緊急時：紅底 #fef2f2，顯示「🚨 緊急」
+//            ├─ 一般時：灰底 #f9fafb
+//            ├─ 紀錄內容  → size: 'sm', color: '#374151'
+//            └─ 顧問名 + 時間 → size: 'xs', color: '#9ca3af'
+//
+//   footer（底部）
+//     └─ 「＋ 新增紀錄」按鈕 → style: 'primary', color: '#2563eb'（藍色）
+
 export function buildClientDetailFlex(client: ClientDetail, logs: LogRow[]) {
   const logItems = logs.length > 0
     ? logs.map(log => ({
@@ -289,6 +358,47 @@ export function buildClientDetailFlex(client: ClientDetail, logs: LogRow[]) {
           style: 'primary',
           height: 'sm',
           color: '#2563eb',
+        }],
+      },
+    },
+  }
+}
+
+// ─── 新增客戶：LIFF 表單入口 ─────────────────────────────────────────────────
+// buildNewClientMessage()：回傳一個 bubble，內含「開啟新增客戶表單」按鈕
+// 按鈕動作為 uri 類型，點擊後直接開啟 LIFF 表單頁面
+
+export function buildNewClientMessage(liffId: string) {
+  const liffUrl = `https://liff.line.me/${liffId}`
+  return {
+    type: 'flex',
+    altText: '新增客戶',
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '20px',
+        contents: [
+          { type: 'text', text: '新增客戶', weight: 'bold', size: 'md', color: '#111827' },
+          { type: 'text', text: '點下方按鈕開啟表單填寫客戶基本資料', size: 'sm', color: '#6b7280', wrap: true, margin: 'sm' },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '12px',
+        contents: [{
+          type: 'button',
+          action: {
+            type: 'uri',
+            label: '＋ 開啟新增表單',
+            uri: liffUrl,
+          },
+          style: 'primary',
+          height: 'sm',
+          color: '#16a34a',
         }],
       },
     },

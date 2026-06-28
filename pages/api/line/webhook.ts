@@ -6,23 +6,29 @@ import {
   buildBindQuickReply,
   buildClientListFlex,
   buildClientDetailFlex,
+  buildNewClientMessage,
 } from '../../../lib/line-reply'
 
+// Supabase 客戶端：使用 service role key，可繞過 RLS 直接操作所有資料表
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// 停用 Next.js 內建的 body parser，改為手動讀取原始 body（LINE 簽名驗證需要原始字串）
 export const config = { api: { bodyParser: false } }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── 工具函式 ─────────────────────────────────────────────────────────────────
 
+// getRawBody()：從 request stream 手動讀取原始字串，供簽名驗證使用
 async function getRawBody(req: NextApiRequest): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(chunk as Buffer)
   return Buffer.concat(chunks).toString('utf8')
 }
 
+// verifySignature()：用 LINE_CHANNEL_SECRET 對 body 做 HMAC-SHA256，比對 x-line-signature header
+// 驗證失敗 → 回傳 401，防止偽造請求
 function verifySignature(body: string, sig: string): boolean {
   const hash = crypto
     .createHmac('sha256', process.env.LINE_CHANNEL_SECRET!)
@@ -31,6 +37,7 @@ function verifySignature(body: string, sig: string): boolean {
   return hash === sig
 }
 
+// getConsultant()：用 LINE userId 查詢已綁定的顧問；未綁定則回傳 null
 async function getConsultant(lineUserId: string) {
   const { data } = await supabase
     .from('consultants')
@@ -40,6 +47,8 @@ async function getConsultant(lineUserId: string) {
   return data as { id: string; name: string } | null
 }
 
+// getSession()：讀取使用者目前的對話狀態（state）與暫存資料（data）
+// 用於多輪對話，例如「等待使用者輸入互動紀錄內容」
 async function getSession(lineUserId: string) {
   const { data } = await supabase
     .from('bot_sessions')
@@ -49,6 +58,7 @@ async function getSession(lineUserId: string) {
   return data as { state: string; data: Record<string, string> } | null
 }
 
+// setSession()：寫入或更新對話狀態，使用 upsert（有則更新、無則新增）
 async function setSession(lineUserId: string, state: string, data: Record<string, string>) {
   await supabase.from('bot_sessions').upsert({
     line_user_id: lineUserId,
@@ -58,10 +68,13 @@ async function setSession(lineUserId: string, state: string, data: Record<string
   })
 }
 
+// clearSession()：刪除對話狀態，對話流程結束後呼叫（完成或取消）
 async function clearSession(lineUserId: string) {
   await supabase.from('bot_sessions').delete().eq('line_user_id', lineUserId)
 }
 
+// sendBindPrompt()：發送「請問你是哪位顧問？」的 Quick Reply 選單
+// 當使用者尚未綁定身份時呼叫
 async function sendBindPrompt(replyToken: string) {
   const { data: consultants } = await supabase
     .from('consultants')
@@ -70,8 +83,10 @@ async function sendBindPrompt(replyToken: string) {
   await replyMessage(replyToken, [buildBindQuickReply(consultants ?? [])])
 }
 
-// ─── Event handlers ───────────────────────────────────────────────────────────
+// ─── 事件處理函式 ─────────────────────────────────────────────────────────────
 
+// handleFollow()：使用者加入好友或解除封鎖時觸發
+// 已綁定顧問 → 歡迎回來；尚未綁定 → 顯示顧問選擇選單
 async function handleFollow(replyToken: string, lineUserId: string) {
   const consultant = await getConsultant(lineUserId)
   if (consultant) {
@@ -84,11 +99,17 @@ async function handleFollow(replyToken: string, lineUserId: string) {
   await sendBindPrompt(replyToken)
 }
 
+// handleText()：處理使用者傳入的文字訊息，依序判斷：
+//   1. 是否處於多輪對話狀態（awaiting_content / awaiting_search）
+//   2. 是否已綁定顧問身份
+//   3. 關鍵字快速指令（「我的客戶」、「查顧問」）
+//   4. 以上皆不符 → 視為搜尋關鍵字
 async function handleText(replyToken: string, lineUserId: string, text: string) {
-  // 1. Check multi-turn session state first
+  // 1. 優先檢查多輪對話狀態
   const session = await getSession(lineUserId)
 
   if (session?.state === 'awaiting_content') {
+    // 使用者正在輸入互動紀錄內容
     const { client_id, client_name, consultant_id } = session.data
     if (text.trim() === '取消') {
       await clearSession(lineUserId)
@@ -110,19 +131,20 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
   }
 
   if (session?.state === 'awaiting_search') {
+    // 使用者正在輸入搜尋關鍵字（由 postback action=search 觸發的搜尋流程）
     await clearSession(lineUserId)
     await handleSearch(replyToken, text)
     return
   }
 
-  // 2. Check if consultant is bound
+  // 2. 確認顧問身份是否已綁定
   const consultant = await getConsultant(lineUserId)
   if (!consultant) {
     await sendBindPrompt(replyToken)
     return
   }
 
-  // 3. Keyword shortcuts
+  // 3. 關鍵字快速指令
   if (text.includes('我的客戶')) {
     await handleMyClients(replyToken, consultant)
     return
@@ -133,10 +155,12 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
     return
   }
 
-  // 4. Default: search
+  // 4. 其他文字 → 直接當搜尋關鍵字
   await handleSearch(replyToken, text)
 }
 
+// handleConsultantSelector()：顯示「請選擇要查看的顧問」Quick Reply 選單
+// 使用者輸入「查顧問」或「所有顧問」時觸發
 async function handleConsultantSelector(replyToken: string) {
   const { data: consultants } = await supabase
     .from('consultants')
@@ -159,6 +183,8 @@ async function handleConsultantSelector(replyToken: string) {
   }])
 }
 
+// handleMyClients()：查詢指定顧問的客戶列表（最多 10 位），並附上每位客戶的最後互動時間
+// 「我的客戶」指令 或 查看其他顧問客戶時都會呼叫此函式
 async function handleMyClients(replyToken: string, consultant: { id: string; name: string }) {
   const { data: clients } = await supabase
     .from('線上All企業主總表')
@@ -172,7 +198,7 @@ async function handleMyClients(replyToken: string, consultant: { id: string; nam
     return
   }
 
-  // Fetch latest log per client
+  // 撈每位客戶最新一筆互動紀錄的時間，顯示在卡片右下角
   const ids = clients.map(c => c.id)
   const { data: logs } = await supabase
     .from('client_logs')
@@ -189,6 +215,8 @@ async function handleMyClients(replyToken: string, consultant: { id: string; nam
   await replyMessage(replyToken, [buildClientListFlex(enriched, `我的客戶（${consultant.name}）`)])
 }
 
+// handleSearch()：依關鍵字模糊搜尋企業主名稱或公司名稱（最多回傳 5 筆）
+// 找不到任何結果時回傳純文字提示
 async function handleSearch(replyToken: string, term: string) {
   const { data: clients } = await supabase
     .from('線上All企業主總表')
@@ -204,11 +232,19 @@ async function handleSearch(replyToken: string, term: string) {
   await replyMessage(replyToken, [buildClientListFlex(clients, `搜尋：${term}`)])
 }
 
+// handlePostback()：處理 Flex Message 按鈕點擊（postback 事件）
+// action 參數對應各種按鈕行為：
+//   bind              → 綁定顧問身份（不需先登入）
+//   my_clients        → 查看自己的客戶列表
+//   consultant_clients → 查看指定顧問的客戶列表
+//   search            → 進入搜尋模式（等待使用者輸入關鍵字）
+//   view              → 查看單一客戶詳情（顯示詳情 Flex Message）
+//   new_log           → 新增互動紀錄（進入多輪對話，等待使用者輸入內容）
 async function handlePostback(replyToken: string, lineUserId: string, data: string) {
   const params = new URLSearchParams(data)
   const action = params.get('action')
 
-  // Bind identity (no consultant required)
+  // bind：綁定顧問身份，不需要已登入（第一次使用時操作）
   if (action === 'bind') {
     const { data: c } = await supabase
       .from('consultants')
@@ -273,6 +309,12 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
       break
     }
 
+    case 'new_client': {
+      const liffId = process.env.NEXT_PUBLIC_LIFF_ID_NEW_CLIENT!
+      await replyMessage(replyToken, [buildNewClientMessage(liffId)])
+      break
+    }
+
     case 'new_log': {
       const cid = params.get('cid')!
       const { data: client } = await supabase
@@ -296,7 +338,13 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
   }
 }
 
-// ─── Main handler ─────────────────────────────────────────────────────────────
+// ─── 主要進入點 ───────────────────────────────────────────────────────────────
+// handler()：LINE webhook 的 API 路由主函式
+// 流程：驗證請求來源 → 解析 events → 依事件類型分派處理函式
+//   follow   → handleFollow（加好友 / 解封鎖）
+//   message  → handleText（使用者傳文字）
+//   postback → handlePostback（按下 Flex Message 按鈕）
+// 所有 events 以 Promise.all 並行處理，最後統一回傳 200
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
