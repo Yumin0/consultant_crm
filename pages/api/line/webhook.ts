@@ -37,6 +37,23 @@ function verifySignature(body: string, sig: string): boolean {
   return hash === sig
 }
 
+// callMaiagent()：將使用者訊息傳入 Maiagent Chatbot，回傳 AI 回應文字
+async function callMaiagent(text: string): Promise<string> {
+  const res = await fetch(
+    `https://api.maiagent.ai/api/v1/chatbots/${process.env.MAIAGENT_CHATBOT_ID}/completions/`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Api-Key ${process.env.MAIAGENT_API_KEY}`,
+      },
+      body: JSON.stringify({ message: { content: text } }),
+    }
+  )
+  const result = await res.json()
+  return result.content || result.message?.content || JSON.stringify(result)
+}
+
 // getConsultant()：用 LINE userId 查詢已綁定的顧問；未綁定則回傳 null
 async function getConsultant(lineUserId: string) {
   const { data } = await supabase
@@ -71,6 +88,28 @@ async function setSession(lineUserId: string, state: string, data: Record<string
 // clearSession()：刪除對話狀態，對話流程結束後呼叫（完成或取消）
 async function clearSession(lineUserId: string) {
   await supabase.from('bot_sessions').delete().eq('line_user_id', lineUserId)
+}
+
+// handleMonthlyStatusEntry()：進入 Maiagent AI 對話模式
+// 設定 session 狀態為 ai_chat，並發送提示訊息
+async function handleMonthlyStatusEntry(replyToken: string, lineUserId: string) {
+  await setSession(lineUserId, 'ai_chat', {})
+  await replyMessage(replyToken, [{
+    type: 'text',
+    text: '🤖 已進入 AI 對話模式，請輸入你的問題。\n\n輸入「結束」可離開對話模式。',
+  }])
+}
+
+// handleAiChat()：AI 對話模式下的訊息處理
+// 輸入「結束」或「離開」退出；其他訊息轉發給 Maiagent 並回傳回應
+async function handleAiChat(replyToken: string, lineUserId: string, text: string) {
+  if (text.trim() === '結束' || text.trim() === '離開') {
+    await clearSession(lineUserId)
+    await replyMessage(replyToken, [{ type: 'text', text: '✅ 已離開 AI 對話模式。' }])
+    return
+  }
+  const aiResponse = await callMaiagent(text)
+  await replyMessage(replyToken, [{ type: 'text', text: aiResponse }])
 }
 
 // sendBindPrompt()：發送「請問你是哪位顧問？」的 Quick Reply 選單
@@ -137,6 +176,11 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
     return
   }
 
+  if (session?.state === 'ai_chat') {
+    await handleAiChat(replyToken, lineUserId, text)
+    return
+  }
+
   // 2. 確認顧問身份是否已綁定
   const consultant = await getConsultant(lineUserId)
   if (!consultant) {
@@ -152,6 +196,11 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
 
   if (text.includes('查顧問') || text.includes('所有顧問')) {
     await handleConsultantSelector(replyToken)
+    return
+  }
+
+  if (text.includes('本月狀況')) {
+    await handleMonthlyStatusEntry(replyToken, lineUserId)
     return
   }
 
