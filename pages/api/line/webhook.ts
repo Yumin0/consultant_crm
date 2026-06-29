@@ -8,6 +8,7 @@ import {
   buildClientDetailFlex,
   buildNewClientMessage,
 } from '../../../lib/line-reply'
+import { notifyClientLog } from '../../../lib/notify'
 
 // Supabase 客戶端：使用 service role key，可繞過 RLS 直接操作所有資料表
 const supabase = createClient(
@@ -143,42 +144,53 @@ async function handleFollow(replyToken: string, lineUserId: string) {
 //   2. 是否已綁定顧問身份
 //   3. 關鍵字快速指令（「我的客戶」、「查顧問」）
 //   4. 以上皆不符 → 視為搜尋關鍵字
-async function handleText(replyToken: string, lineUserId: string, text: string) {
-  // 1. 優先檢查多輪對話狀態
-  const session = await getSession(lineUserId)
+const RICH_MENU_KEYWORDS = ['我的客戶', '查顧問', '所有顧問', '本月狀況']
 
-  if (session?.state === 'awaiting_content') {
-    // 使用者正在輸入互動紀錄內容
-    const { client_id, client_name, consultant_id } = session.data
-    if (text.trim() === '取消') {
+async function handleText(replyToken: string, lineUserId: string, text: string) {
+  const isRichMenuKeyword = RICH_MENU_KEYWORDS.some(k => text.includes(k))
+
+  // 1. Rich Menu 關鍵字：強制清除 session，直接跳到關鍵字處理
+  if (!isRichMenuKeyword) {
+    const session = await getSession(lineUserId)
+
+    if (session?.state === 'awaiting_content') {
+      const { client_id, client_name, consultant_id } = session.data
+      if (text.trim() === '取消') {
+        await clearSession(lineUserId)
+        await replyMessage(replyToken, [{ type: 'text', text: '已取消新增紀錄。' }])
+        return
+      }
+      await supabase.from('client_logs').insert({
+        client_id: Number(client_id),
+        consultant_id,
+        content: text.trim(),
+        priority: 'normal',
+      })
       await clearSession(lineUserId)
-      await replyMessage(replyToken, [{ type: 'text', text: '已取消新增紀錄。' }])
+      await replyMessage(replyToken, [{
+        type: 'text',
+        text: `✅ 已新增「${client_name}」的互動紀錄。`,
+      }])
+      notifyClientLog(
+        Number(client_id),
+        { content: text.trim(), priority: 'normal' },
+        consultant_id,
+      ).catch(console.error)
       return
     }
-    await supabase.from('client_logs').insert({
-      client_id: Number(client_id),
-      consultant_id,
-      content: text.trim(),
-      priority: 'normal',
-    })
-    await clearSession(lineUserId)
-    await replyMessage(replyToken, [{
-      type: 'text',
-      text: `✅ 已新增「${client_name}」的互動紀錄。`,
-    }])
-    return
-  }
 
-  if (session?.state === 'awaiting_search') {
-    // 使用者正在輸入搜尋關鍵字（由 postback action=search 觸發的搜尋流程）
-    await clearSession(lineUserId)
-    await handleSearch(replyToken, text)
-    return
-  }
+    if (session?.state === 'awaiting_search') {
+      await clearSession(lineUserId)
+      await handleSearch(replyToken, text)
+      return
+    }
 
-  if (session?.state === 'ai_chat') {
-    await handleAiChat(replyToken, lineUserId, text)
-    return
+    if (session?.state === 'ai_chat') {
+      await handleAiChat(replyToken, lineUserId, text)
+      return
+    }
+  } else {
+    await clearSession(lineUserId)
   }
 
   // 2. 確認顧問身份是否已綁定

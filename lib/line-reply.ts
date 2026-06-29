@@ -364,6 +364,177 @@ export function buildClientDetailFlex(client: ClientDetail, logs: LogRow[]) {
   }
 }
 
+// ─── 互動紀錄通知：推播給負責顧問 ──────────────────────────────────────────
+// buildLogNotificationFlex()：有人為客戶新增互動紀錄時，推播給負責顧問
+//
+// 卡片結構：
+//   header（橘色 #f97316）：🔔 新互動紀錄
+//   body：
+//     ├─ 企業主名（粗體）+ 公司（灰字）
+//     ├─ 紀錄內容（灰底框，最多 120 字；緊急則加 🚨 badge）
+//     └─ 「由 [顧問名] 新增 · 剛才」（小字灰色）
+//   footer：「查看客戶詳情」按鈕（postback: action=view&id）
+
+type NotificationClient = {
+  id: number
+  '1. 企業主名': string
+  '2. 公司名稱': string
+}
+
+export function buildLogNotificationFlex(
+  client: NotificationClient,
+  log: { content: string; priority: string },
+  addedBy: string,
+) {
+  const preview = log.content.length > 120 ? log.content.slice(0, 120) + '…' : log.content
+  const isUrgent = log.priority === 'urgent'
+
+  return {
+    type: 'flex',
+    altText: `🔔 ${client['1. 企業主名']} 有新互動紀錄（由 ${addedBy} 新增）`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '12px',
+        backgroundColor: '#f97316',
+        contents: [
+          { type: 'text', text: '🔔 新互動紀錄', color: '#ffffff', weight: 'bold', size: 'sm' },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        spacing: 'sm',
+        contents: [
+          { type: 'text', text: client['1. 企業主名'] || '—', weight: 'bold', size: 'md', color: '#111827' },
+          { type: 'text', text: client['2. 公司名稱'] || '—', size: 'sm', color: '#6b7280' },
+          {
+            type: 'box',
+            layout: 'vertical',
+            margin: 'md',
+            paddingAll: '10px',
+            backgroundColor: isUrgent ? '#fef2f2' : '#f3f4f6',
+            cornerRadius: '6px',
+            contents: [
+              ...(isUrgent
+                ? [{ type: 'text', text: '🚨 緊急', size: 'xs', color: '#dc2626', weight: 'bold' as const }]
+                : []),
+              { type: 'text', text: preview, size: 'sm', color: '#374151', wrap: true },
+            ],
+          },
+          {
+            type: 'text',
+            text: `由 ${addedBy} 新增 · 剛才`,
+            size: 'xs',
+            color: '#9ca3af',
+            margin: 'sm',
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '12px',
+        contents: [{
+          type: 'button',
+          action: {
+            type: 'postback',
+            label: '查看客戶詳情',
+            data: `action=view&id=${client.id}`,
+          },
+          style: 'primary',
+          height: 'sm',
+          color: '#2563eb',
+        }],
+      },
+    },
+  }
+}
+
+// ─── 新增客戶通知：推播給所有顧問 ───────────────────────────────────────────
+// buildNewClientNotificationFlex()：有人新增客戶時，推播給其他已綁定顧問
+//
+// 卡片結構：
+//   header（綠色 #16a34a）：🆕 新增客戶
+//   body：企業主名（粗體）、公司（灰字）、合約狀態、「由 [顧問名] 建立」
+//   footer：「查看客戶詳情」按鈕
+
+type NewClientNotification = {
+  id: number
+  '1. 企業主名': string
+  '2. 公司名稱'?: string | null
+  '9. 月費合約現狀'?: string | null
+}
+
+export function buildNewClientNotificationFlex(
+  client: NewClientNotification,
+  addedBy: string,
+) {
+  const status = client['9. 月費合約現狀'] || null
+
+  return {
+    type: 'flex',
+    altText: `🆕 新客戶：${client['1. 企業主名']}（由 ${addedBy} 建立）`,
+    contents: {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '12px',
+        backgroundColor: '#16a34a',
+        contents: [
+          { type: 'text', text: '🆕 新增客戶', color: '#ffffff', weight: 'bold', size: 'sm' },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        spacing: 'sm',
+        contents: [
+          { type: 'text', text: client['1. 企業主名'] || '—', weight: 'bold', size: 'md', color: '#111827' },
+          { type: 'text', text: client['2. 公司名稱'] || '—', size: 'sm', color: '#6b7280' },
+          ...(status ? [{
+            type: 'text',
+            text: status,
+            size: 'xs',
+            color: statusColor(status),
+            margin: 'sm' as const,
+          }] : []),
+          {
+            type: 'text',
+            text: `由 ${addedBy} 建立 · 剛才`,
+            size: 'xs',
+            color: '#9ca3af',
+            margin: 'md' as const,
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '12px',
+        contents: [{
+          type: 'button',
+          action: {
+            type: 'postback',
+            label: '查看客戶詳情',
+            data: `action=view&id=${client.id}`,
+          },
+          style: 'primary',
+          height: 'sm',
+          color: '#16a34a',
+        }],
+      },
+    },
+  }
+}
+
 // ─── 新增客戶：LIFF 表單入口 ─────────────────────────────────────────────────
 // buildNewClientMessage()：回傳一個 bubble，內含「開啟新增客戶表單」按鈕
 // 按鈕動作為 uri 類型，點擊後直接開啟 LIFF 表單頁面

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { notifyClientLog } from '../../../lib/notify'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,5 +33,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .single()
 
   if (error) return res.status(500).json({ error: error.message })
+
+  notifyClientLog(
+    Number(client_id),
+    { content, priority: priority || 'normal' },
+    consultant_id || null,
+  ).catch(console.error)
+
   res.status(201).json(data)
 }

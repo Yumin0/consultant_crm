@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { notifyNewClient } from '../../../lib/notify'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,6 +32,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single()
 
     if (error) return res.status(500).json({ error: error.message })
+
+    notifyNewClient(
+      {
+        id: data.id,
+        '1. 企業主名': data['1. 企業主名'],
+        '2. 公司名稱': company?.trim() || null,
+        '9. 月費合約現狀': status?.trim() || null,
+      },
+      consultant_id || null,
+    ).catch(console.error)
+
     return res.status(201).json(data)
   }
 
