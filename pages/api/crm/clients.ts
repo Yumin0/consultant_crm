@@ -33,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (error) return res.status(500).json({ error: error.message })
 
-    notifyNewClient(
+    await notifyNewClient(
       {
         id: data.id,
         '1. 企業主名': data['1. 企業主名'],

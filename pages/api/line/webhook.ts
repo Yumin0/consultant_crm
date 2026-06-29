@@ -171,7 +171,7 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
         type: 'text',
         text: `✅ 已新增「${client_name}」的互動紀錄。`,
       }])
-      notifyClientLog(
+      await notifyClientLog(
         Number(client_id),
         { content: text.trim(), priority: 'normal' },
         consultant_id,

@@ -34,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (error) return res.status(500).json({ error: error.message })
 
-  notifyClientLog(
+  await notifyClientLog(
     Number(client_id),
     { content, priority: priority || 'normal' },
     consultant_id || null,
