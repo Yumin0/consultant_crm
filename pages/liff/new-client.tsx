@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 
 type Consultant = { id: string; name: string }
 
-const STATUS_OPTIONS = ['合約中', '合約暫停中', '退費', '過期未續', '尚未成交']
+// 2026-07-22：改用真實資料庫「9. 月費合約現狀」欄位歷史上最常出現的用詞
+// （合約進行中/合約暫停中/合約退費/過期未續 為既有主力用詞，尚未成交是面向新客戶的既有選項）
+const STATUS_OPTIONS = ['合約進行中', '合約暫停中', '合約退費', '過期未續', '尚未成交']
 
 export default function NewClientLiff() {
   const [ready, setReady] = useState(false)

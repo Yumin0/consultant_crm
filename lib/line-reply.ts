@@ -29,35 +29,37 @@ export async function pushMessage(userId: string, messages: object[]) {
   })
 }
 
-// ─── 合約狀態：顏色對照 ──────────────────────────────────────────────────────
-// STATUS_COLOR：合約現狀關鍵字 → 顏色 hex 對照表
-//   '合約中'   → 綠色 #16a34a
-//   '續約'     → 藍色 #2563eb
-//   '退費'     → 紅色 #dc2626
-//   '暫停'     → 橘色 #d97706（截圖顯示的「合約暫停中」即套用此色）
-//   '過期未續' → 灰色 #6b7280
-// 修改顏色：直接改對應的 hex 值即可
-// statusColor()：傳入合約狀態字串，回傳對應顏色；若無符合則回傳灰色
+// ─── 合約狀態：圖示對照 ──────────────────────────────────────────────────────
+// STATUS_ICON：合約現狀關鍵字 → emoji 對照表（2026-07-22 由顏色改圖示）
+//   公司用色規範沒有紅/橘/綠這種語意色，狀態嚴重度改用圖示本身的顏色語意來傳達，
+//   文字統一用中性色（見 statusIcon() 呼叫端），不再用背景/文字色區分好壞
+//   關鍵字取自資料庫「9. 月費合約現狀」實際出現過的用詞（見 docs/project-spec.md）
+// statusIcon()：傳入合約狀態字串，回傳對應 emoji；不符合任何關鍵字（例如歷史雜訊
+//   文字「Deadfile」「剩下三週!」）就回傳通用文件圖示，不隱藏原始文字
 
-const STATUS_COLOR: Record<string, string> = {
-  '合約中': '#16a34a',
-  '續約':   '#2563eb',
-  '退費':   '#dc2626',
-  '暫停':   '#d97706',
-  '過期未續': '#6b7280',
+const STATUS_ICON: Record<string, string> = {
+  '合約進行中': '✅',
+  '合約中':     '✅',
+  '合約暫停中': '⏸️',
+  '暫停':       '⏸️',
+  '合約退費':   '⚠️',
+  '退費':       '⚠️',
+  '過期未續':   '⛔',
+  '尚未成交':   '🆕',
 }
 
-function statusColor(s: string | null): string {
-  if (!s) return '#6b7280'
-  for (const [key, color] of Object.entries(STATUS_COLOR)) {
-    if (s.includes(key)) return color
+function statusIcon(s: string | null): string {
+  if (!s) return '📄'
+  for (const [key, icon] of Object.entries(STATUS_ICON)) {
+    if (s.includes(key)) return icon
   }
-  return '#6b7280'
+  return '📄'
 }
 
 // ─── 時間格式工具 ────────────────────────────────────────────────────────────
 // relativeTime()：將 ISO 時間轉為「今天 / 昨天 / N 天前 / N 週前 / N 個月前」
 //   顯示在客戶卡片右下角的最後互動時間
+// isStale()：超過 30 天沒有互動紀錄 → true，呼叫端會加 ⏰ 提示，不用顏色判斷
 // formatDate()：將 ISO 時間轉為「M/D HH:MM」格式，顯示在互動紀錄條目裡
 
 function relativeTime(iso: string | null): string {
@@ -68,6 +70,12 @@ function relativeTime(iso: string | null): string {
   if (days < 7) return `${days} 天前`
   if (days < 30) return `${Math.floor(days / 7)} 週前`
   return `${Math.floor(days / 30)} 個月前`
+}
+
+function isStale(iso: string | null): boolean {
+  if (!iso) return false
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  return days >= 30
 }
 
 function formatDate(iso: string): string {
@@ -108,24 +116,26 @@ type ClientRow = {
   '9. 月費合約現狀': string | null
   'Issue（偏離狀態）': string | null
   latest_log_at?: string | null
+  latest_log_urgent?: boolean
 }
 
 // ─── 客戶列表：Flex Message Carousel ─────────────────────────────────────────
 // buildClientListFlex()：產生「查看顧問客戶列表」的 Flex Message
+//   2026-07-22 改版：狀態改用圖示（見 statusIcon()），不再用顏色分好壞；
+//   新增「最新一筆紀錄是否緊急」「超過30天沒互動」兩個提示，一樣用圖示不用顏色
 //
 // 每張卡片（bubble）結構：
 //   body（卡片內容）
-//     ├─ 企業主名    → weight: 'bold', size: 'md', color: '#111827'（深灰黑）
-//     ├─ 公司名稱    → size: 'sm', color: '#6b7280'（灰色）
+//     ├─ 企業主名    → weight: 'bold', size: 'md', color: '#111214'（近黑，公司規範主色）
+//     ├─ 公司名稱    → size: 'sm', color: '#6b7280'（既有灰色，這輪未列入校正範圍）
 //     └─ 狀態列      → 水平排列
-//          ├─ 合約現狀（左）→ 顏色由 statusColor() 決定
-//          ├─ ⚠ 偏離（中，有偏離狀態才顯示）→ color: '#f97316'（橘色）
-//          └─ 最後互動時間（右）→ color: '#9ca3af'（淺灰）
+//          ├─ 合約現狀（左）→ statusIcon() 圖示 + 文字，文字統一近黑色
+//          ├─ 中間（有才顯示，緊急優先於偏離）→ 🚨 緊急 或 ⚠ 偏離
+//          └─ 最後互動時間（右）→ 超過30天加 ⏰ 前綴
 //
 //   footer（底部按鈕）
 //     ├─ 「查看」按鈕  → style: 'link'（無背景）
-//     └─ 「新增紀錄」  → style: 'primary', color: '#2563eb'（藍色）
-//          修改按鈕顏色：改 color 欄位的 hex 值
+//     └─ 「新增紀錄」  → style: 'primary', color: '#111214'（公司規範近黑，取代原本不合規的鮮豔藍）
 //
 // 若只有 1 位客戶 → 顯示單一 bubble；2 位以上 → 顯示 carousel（左右滑動）
 // 修改卡片大小：改 size: 'kilo'（可選 nano / micro / kilo / mega / giga）
@@ -162,16 +172,18 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
           contents: [
             {
               type: 'text',
-              text: c['9. 月費合約現狀'] || '—',
+              text: `${statusIcon(c['9. 月費合約現狀'])} ${c['9. 月費合約現狀'] || '—'}`,
               size: 'xs',
-              color: statusColor(c['9. 月費合約現狀']),
+              color: '#111214',
               flex: 1,
             },
-            ...(c['Issue（偏離狀態）']
-              ? [{ type: 'text', text: '⚠ 偏離', size: 'xs', color: '#f97316', align: 'end' as const }]
+            ...(c.latest_log_urgent
+              ? [{ type: 'text', text: '🚨 緊急', size: 'xs', color: '#111214', align: 'end' as const }]
+              : c['Issue（偏離狀態）']
+              ? [{ type: 'text', text: '⚠ 偏離', size: 'xs', color: '#111214', align: 'end' as const }]
               : []),
             ...(c.latest_log_at
-              ? [{ type: 'text', text: relativeTime(c.latest_log_at), size: 'xs', color: '#9ca3af', align: 'end' as const }]
+              ? [{ type: 'text', text: `${isStale(c.latest_log_at) ? '⏰ ' : ''}${relativeTime(c.latest_log_at)}`, size: 'xs', color: '#9ca3af', align: 'end' as const }]
               : []),
           ],
         },
@@ -203,7 +215,7 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
           },
           style: 'primary',
           height: 'sm',
-          color: '#2563eb',
+          color: '#111214',
           flex: 1,
         },
       ],
@@ -249,7 +261,7 @@ type ClientDetail = {
 //        修改標題背景色：改 backgroundColor: '#1d4ed8'
 //
 //   body（主內容）
-//     ├─ 合約現狀（水平列）→ 標籤灰色 #6b7280，值由 statusColor() 上色
+//     ├─ 合約現狀（水平列）→ 標籤灰色 #6b7280，值改用 statusIcon() 圖示 + 近黑文字
 //     ├─ 學員動態（水平列）→ 標籤灰色，值深灰 #374151
 //     ├─ ⚠ 偏離狀態區塊（有才顯示）→ 橘底 #fff7ed，文字 #c2410c
 //     ├─ 處置方式區塊（有才顯示） → 藍底 #eff6ff，文字 #1d4ed8
@@ -317,7 +329,7 @@ export function buildClientDetailFlex(client: ClientDetail, logs: LogRow[]) {
             type: 'box', layout: 'horizontal',
             contents: [
               { type: 'text', text: '合約現狀', size: 'xs', color: '#6b7280', flex: 2 },
-              { type: 'text', text: client['9. 月費合約現狀'] || '—', size: 'xs', color: statusColor(client['9. 月費合約現狀']), weight: 'bold', flex: 3 },
+              { type: 'text', text: `${statusIcon(client['9. 月費合約現狀'])} ${client['9. 月費合約現狀'] || '—'}`, size: 'xs', color: '#111214', weight: 'bold', flex: 3 },
             ],
           },
           {
@@ -585,9 +597,9 @@ export function buildNewClientNotificationFlex(
           { type: 'text', text: client['2. 公司名稱'] || '—', size: 'sm', color: '#6b7280' },
           ...(status ? [{
             type: 'text',
-            text: status,
+            text: `${statusIcon(status)} ${status}`,
             size: 'xs',
-            color: statusColor(status),
+            color: '#111214',
             margin: 'sm' as const,
           }] : []),
           {

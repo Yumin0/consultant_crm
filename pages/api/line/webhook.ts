@@ -293,6 +293,31 @@ async function handleConsultantSelector(replyToken: string) {
   }])
 }
 
+// enrichWithLatestLog()：撈每位客戶最新一筆互動紀錄的時間與是否緊急，
+//   顯示在客戶列表卡片右下角（時間）與狀態列（🚨緊急徽章）
+//   handleMyClients、handleSearch 共用，避免重複邏輯
+async function enrichWithLatestLog<T extends { id: number }>(clients: T[]) {
+  if (!clients.length) return clients as (T & { latest_log_at: null; latest_log_urgent: false })[]
+
+  const ids = clients.map(c => c.id)
+  const { data: logs } = await supabase
+    .from('client_logs')
+    .select('client_id, created_at, priority')
+    .in('client_id', ids)
+    .order('created_at', { ascending: false })
+
+  const latest: Record<number, { at: string; urgent: boolean }> = {}
+  for (const l of logs ?? []) {
+    if (!latest[l.client_id]) latest[l.client_id] = { at: l.created_at, urgent: l.priority === 'urgent' }
+  }
+
+  return clients.map(c => ({
+    ...c,
+    latest_log_at: latest[c.id]?.at ?? null,
+    latest_log_urgent: latest[c.id]?.urgent ?? false,
+  }))
+}
+
 // handleMyClients()：查詢指定顧問的客戶列表（最多 10 位），並附上每位客戶的最後互動時間
 // 「我的客戶」指令 或 查看其他顧問客戶時都會呼叫此函式
 async function handleMyClients(replyToken: string, consultant: { id: string; name: string }) {
@@ -308,20 +333,7 @@ async function handleMyClients(replyToken: string, consultant: { id: string; nam
     return
   }
 
-  // 撈每位客戶最新一筆互動紀錄的時間，顯示在卡片右下角
-  const ids = clients.map(c => c.id)
-  const { data: logs } = await supabase
-    .from('client_logs')
-    .select('client_id, created_at')
-    .in('client_id', ids)
-    .order('created_at', { ascending: false })
-
-  const latestLog: Record<number, string> = {}
-  for (const l of logs ?? []) {
-    if (!latestLog[l.client_id]) latestLog[l.client_id] = l.created_at
-  }
-
-  const enriched = clients.map(c => ({ ...c, latest_log_at: latestLog[c.id] ?? null }))
+  const enriched = await enrichWithLatestLog(clients)
   await replyMessage(replyToken, [buildClientListFlex(enriched, `我的客戶（${consultant.name}）`)])
 }
 
@@ -339,7 +351,8 @@ async function handleSearch(replyToken: string, term: string) {
     return
   }
 
-  await replyMessage(replyToken, [buildClientListFlex(clients, `搜尋：${term}`)])
+  const enriched = await enrichWithLatestLog(clients)
+  await replyMessage(replyToken, [buildClientListFlex(enriched, `搜尋：${term}`)])
 }
 
 // handlePostback()：處理 Flex Message 按鈕點擊（postback 事件）
