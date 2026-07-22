@@ -399,20 +399,23 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
 
     case 'new_log': {
       const cid = params.get('cid')!
-      const { data: client } = await supabase
-        .from('線上All企業主總表')
-        .select(`id, "1. 企業主名"`)
-        .eq('id', cid)
-        .maybeSingle()
+
+      // 客戶名稱、現行分類清單（快速紀錄 5 大類，只列 is_archived=false）平行查詢，
+      // 減少回覆前的等待時間，避免 LINE 因回應過慢而重送 postback 造成重複訊息
+      const [{ data: client }, { data: categories }] = await Promise.all([
+        supabase
+          .from('線上All企業主總表')
+          .select(`id, "1. 企業主名"`)
+          .eq('id', cid)
+          .maybeSingle(),
+        supabase
+          .from('log_categories')
+          .select('id, name, icon')
+          .eq('is_archived', false)
+          .order('sort_order'),
+      ])
 
       const clientName = client?.['1. 企業主名'] ?? '該客戶'
-
-      // 快速紀錄 5 大類：只列現行未封存的分類，先選類別再輸入內容
-      const { data: categories } = await supabase
-        .from('log_categories')
-        .select('id, name, icon')
-        .eq('is_archived', false)
-        .order('sort_order')
 
       await setSession(lineUserId, 'awaiting_category', {
         client_id: cid,
