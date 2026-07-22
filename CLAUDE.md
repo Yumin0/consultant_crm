@@ -128,3 +128,4 @@ cd gas/bop-line-chat
 - 修改 API 路由時須確保仍使用 `SUPABASE_SERVICE_ROLE_KEY`，不要改成 anon key（會被 RLS 擋住）
 - 不要新增會將 `SUPABASE_SERVICE_ROLE_KEY` 暴露到前端的程式碼
 - 資料筆數上限為 200（`/api/data` 的 `.limit(200)`），如需調整請修改 `pages/api/data.ts`
+- **任何 UI／LINE Flex Message 選色前，先讀 `docs/brand-colors.md` 的公司用色規範**，不要用不在清單內的顏色（例如常見 Tailwind 鮮豔藍 `#1d4ed8`、`#2563eb`）

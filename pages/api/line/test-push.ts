@@ -40,7 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         icon: '📅',
         title: '基礎背景與學習頻率',
-        color: '#1d4ed8',
+        color: '#4F5E72',
         lines: [
           '・合約期間：2026/01/01 - 12/31',
           '・本週學習：上線 3 次／閱讀 1.5 小時',
@@ -50,7 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         icon: '🎉',
         title: '最近的好消息',
-        color: '#2563eb',
+        color: '#7E96B9',
         lines: [
           '・司機團隊正式開始使用職務說明書。',
           '・同仁「芝芝」讀書會表現主動具潛力。',
@@ -59,7 +59,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         icon: '🚨',
         title: '最近的公司狀態',
-        color: '#3b82f6',
+        color: '#ADCFFF',
+        textOnLight: true,
         lines: [
           '・新採購助理 7/6 已順利就任。',
           '・司機酒駕吊照轉倉管，目前急缺一司機。',
@@ -68,10 +69,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       {
         icon: '🎯',
         title: '最近的行動計畫',
-        color: '#60a5fa',
+        color: '#CEE2FF',
+        textOnLight: true,
         lines: [
-          '☐ 8/10前：公告並籌備組織圖會議。',
-          '☐ 8月前：要求 Nelson 提報 KPI 方案。',
+          '・☐ 8/10前：公告並籌備組織圖會議。',
+          '・☐ 8月前：要求 Nelson 提報 KPI 方案。',
         ],
         newLogClientId: 0,
       },

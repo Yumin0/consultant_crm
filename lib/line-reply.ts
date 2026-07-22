@@ -372,15 +372,21 @@ export function buildClientDetailFlex(client: ClientDetail, logs: LogRow[]) {
 // buildClientProfileCarousel()：依 Chloe 需求文件的 4 象限設計，改用 carousel 呈現
 //   （2026-07-22 視覺原型，資料來源尚未定案，目前用假資料測試樣式）
 //
+// 顏色需依 docs/brand-colors.md 公司用色規範的「衍生色階」做法：
+//   挑一個輔助色當基準（此處用淺藍 #ADCFFF），往近黑/白內插出深淺色階，維持同一色系，
+//   不要混用清單裡不同色相的色票（例如灰＋藍混雜，不算同一色系漸層）
+//   背景較淺的卡片（textOnLight=true）標題文字要改深色，否則會看不清楚
+//
 // 每張卡片：
-//   header → 姓名/公司（小字，淺色）+ 圖示與主題標題（白字），顏色由深藍到淺藍漸層
+//   header → 姓名/公司（小字）+ 圖示與主題標題
 //   body   → 條列內容
-//   footer → 只有「行動計畫」卡才有「＋新增紀錄」按鈕，其餘卡片純瀏覽用
+//   footer → 只有「行動計畫」卡才有「＋新增紀錄」按鈕，固定用近黑 #111214，不隨卡片色變化（維持按鈕辨識度一致）
 
 type ProfileCard = {
   icon: string
   title: string
   color: string
+  textOnLight?: boolean
   lines: string[]
   newLogClientId?: number
 }
@@ -390,45 +396,50 @@ export function buildClientProfileCarousel(
   companyName: string,
   cards: ProfileCard[],
 ) {
-  const bubbles = cards.map(card => ({
-    type: 'bubble',
-    size: 'kilo',
-    header: {
-      type: 'box',
-      layout: 'vertical',
-      paddingAll: '16px',
-      backgroundColor: card.color,
-      contents: [
-        { type: 'text', text: `${clientName}・${companyName}`, size: 'xs', color: '#dbeafe' },
-        { type: 'text', text: `${card.icon} ${card.title}`, color: '#ffffff', weight: 'bold', size: 'md', margin: 'xs', wrap: true },
-      ],
-    },
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      paddingAll: '16px',
-      spacing: 'sm',
-      contents: card.lines.length > 0
-        ? card.lines.map(line => ({ type: 'text', text: line, size: 'sm', color: '#374151', wrap: true }))
-        : [{ type: 'text', text: '（暫無資料）', size: 'sm', color: '#9ca3af' }],
-    },
-    ...(card.newLogClientId
-      ? {
-          footer: {
-            type: 'box',
-            layout: 'vertical',
-            paddingAll: '12px',
-            contents: [{
-              type: 'button',
-              action: { type: 'postback', label: '＋ 新增紀錄', data: `action=new_log&cid=${card.newLogClientId}` },
-              style: 'primary',
-              height: 'sm',
-              color: card.color,
-            }],
-          },
-        }
-      : {}),
-  }))
+  const bubbles = cards.map(card => {
+    const titleColor = card.textOnLight ? '#111214' : '#ffffff'
+    const subtitleColor = card.textOnLight ? '#111214' : '#F2F2F3'
+
+    return {
+      type: 'bubble',
+      size: 'kilo',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        backgroundColor: card.color,
+        contents: [
+          { type: 'text', text: `${clientName}・${companyName}`, size: 'xs', color: subtitleColor },
+          { type: 'text', text: `${card.icon} ${card.title}`, color: titleColor, weight: 'bold', size: 'md', margin: 'xs', wrap: true },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        spacing: 'sm',
+        contents: card.lines.length > 0
+          ? card.lines.map(line => ({ type: 'text', text: line, size: 'sm', color: '#374151', wrap: true }))
+          : [{ type: 'text', text: '（暫無資料）', size: 'sm', color: '#9ca3af' }],
+      },
+      ...(card.newLogClientId
+        ? {
+            footer: {
+              type: 'box',
+              layout: 'vertical',
+              paddingAll: '12px',
+              contents: [{
+                type: 'button',
+                action: { type: 'postback', label: '＋ 新增紀錄', data: `action=new_log&cid=${card.newLogClientId}` },
+                style: 'primary',
+                height: 'sm',
+                color: '#111214',
+              }],
+            },
+          }
+        : {}),
+    }
+  })
 
   return {
     type: 'flex',
