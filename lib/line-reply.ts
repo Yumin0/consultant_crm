@@ -119,78 +119,60 @@ type ClientRow = {
   latest_log_urgent?: boolean
 }
 
-// ─── 客戶列表：單一泡泡、直向清單 ─────────────────────────────────────────────
+// ─── 客戶列表：單一泡泡、緊湊清單 ─────────────────────────────────────────────
 // buildClientListFlex()：產生「查看顧問客戶列表」的 Flex Message
-//   2026-07-22 改版：從「每人一張卡片、橫向 carousel」改成「單一泡泡、每人一段、
-//   往下滑」——carousel 資料一多要一直橫滑才能找人，直向清單可以一次看完整批。
-//   狀態改用圖示（見 statusIcon()），不再用顏色分好壞；
-//   新增「最新一筆紀錄是否緊急」「超過30天沒互動」兩個提示，一樣用圖示不用顏色
+//   2026-07-22 二次改版：第一版（每人一段、含兩顆按鈕）雖然不用橫滑了，但每人還是
+//   佔一大塊，資料一多還是要滑很久。改成每人壓成一行，整行可點直接進「查看」詳情
+//   （詳情卡片本身已有「＋新增紀錄」按鈕），列表本身拿掉按鈕，換取一次能看到更多人。
 //
 // 單一 bubble 結構：
 //   body
 //     ├─ 標題文字（粗體）+ 分隔線
-//     └─ 每位客戶一段（用 separator 分隔）：
-//          ├─ 企業主名    → weight: 'bold', size: 'md', color: '#111214'
-//          ├─ 公司名稱    → size: 'sm', color: '#6b7280'
-//          ├─ 狀態列      → 合約現狀圖示+文字 | 🚨緊急／⚠偏離（優先顯示緊急）| 最後互動時間（超過30天加⏰）
-//          └─ 按鈕列      → 「查看」（link）+「新增紀錄」（primary，近黑 #111214）
+//     └─ 每位客戶一行（用 separator 分隔，整行 action=view，點了直接開詳情卡）：
+//          左（flex 3）：狀態圖示+企業主名（粗體） / 公司名稱（小字，輔助資訊）
+//          右（flex 2）：🚨緊急／⚠偏離（優先顯示緊急，靠右）/ 最後互動時間（超過30天加⏰）
 //
 // 修改 bubble 寬度：改 size: 'giga'（可選 nano / micro / kilo / mega / giga）
 
 export function buildClientListFlex(clients: ClientRow[], title: string) {
   const rows = clients.flatMap((c, i) => [
-    ...(i > 0 ? [{ type: 'separator', margin: 'lg' }] : []),
+    ...(i > 0 ? [{ type: 'separator', margin: 'md' }] : []),
     {
       type: 'box',
-      layout: 'vertical',
-      margin: i > 0 ? 'lg' : 'md',
-      spacing: 'xs',
+      layout: 'horizontal',
+      margin: i > 0 ? 'md' : 'md',
+      paddingAll: 'sm',
+      action: { type: 'postback', label: '查看', data: `action=view&id=${c.id}` },
       contents: [
-        { type: 'text', text: c['1. 企業主名'] || '—', weight: 'bold', size: 'md', color: '#111214', wrap: true },
-        { type: 'text', text: c['2. 公司名稱'] || '—', size: 'sm', color: '#6b7280', wrap: true },
         {
           type: 'box',
-          layout: 'horizontal',
-          margin: 'sm',
+          layout: 'vertical',
+          flex: 3,
           contents: [
             {
               type: 'text',
-              text: `${statusIcon(c['9. 月費合約現狀'])} ${c['9. 月費合約現狀'] || '—'}`,
-              size: 'xs',
+              text: `${statusIcon(c['9. 月費合約現狀'])} ${c['1. 企業主名'] || '—'}`,
+              weight: 'bold',
+              size: 'sm',
               color: '#111214',
-              flex: 2,
+              wrap: true,
             },
+            { type: 'text', text: c['2. 公司名稱'] || '—', size: 'xs', color: '#9599A4', wrap: true },
+          ],
+        },
+        {
+          type: 'box',
+          layout: 'vertical',
+          flex: 2,
+          contents: [
             ...(c.latest_log_urgent
               ? [{ type: 'text', text: '🚨 緊急', size: 'xs', color: '#111214', align: 'end' as const }]
               : c['Issue（偏離狀態）']
               ? [{ type: 'text', text: '⚠ 偏離', size: 'xs', color: '#111214', align: 'end' as const }]
               : []),
             ...(c.latest_log_at
-              ? [{ type: 'text', text: `${isStale(c.latest_log_at) ? '⏰ ' : ''}${relativeTime(c.latest_log_at)}`, size: 'xs', color: '#9ca3af', align: 'end' as const }]
+              ? [{ type: 'text', text: `${isStale(c.latest_log_at) ? '⏰ ' : ''}${relativeTime(c.latest_log_at)}`, size: 'xs', color: '#9599A4', align: 'end' as const }]
               : []),
-          ],
-        },
-        {
-          type: 'box',
-          layout: 'horizontal',
-          spacing: 'sm',
-          margin: 'md',
-          contents: [
-            {
-              type: 'button',
-              action: { type: 'postback', label: '查看', data: `action=view&id=${c.id}` },
-              style: 'link',
-              height: 'sm',
-              flex: 1,
-            },
-            {
-              type: 'button',
-              action: { type: 'postback', label: '新增紀錄', data: `action=new_log&cid=${c.id}` },
-              style: 'primary',
-              height: 'sm',
-              color: '#111214',
-              flex: 1,
-            },
           ],
         },
       ],
@@ -209,6 +191,7 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
         paddingAll: '16px',
         contents: [
           { type: 'text', text: title, weight: 'bold', size: 'lg', color: '#111214' },
+          { type: 'text', text: '點任一行查看詳情與新增紀錄', size: 'xs', color: '#9599A4', margin: 'xs' },
           { type: 'separator', margin: 'md' },
           ...rows,
         ],
