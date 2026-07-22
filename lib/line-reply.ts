@@ -119,52 +119,35 @@ type ClientRow = {
   latest_log_urgent?: boolean
 }
 
-// ─── 客戶列表：Flex Message Carousel ─────────────────────────────────────────
+// ─── 客戶列表：單一泡泡、直向清單 ─────────────────────────────────────────────
 // buildClientListFlex()：產生「查看顧問客戶列表」的 Flex Message
-//   2026-07-22 改版：狀態改用圖示（見 statusIcon()），不再用顏色分好壞；
+//   2026-07-22 改版：從「每人一張卡片、橫向 carousel」改成「單一泡泡、每人一段、
+//   往下滑」——carousel 資料一多要一直橫滑才能找人，直向清單可以一次看完整批。
+//   狀態改用圖示（見 statusIcon()），不再用顏色分好壞；
 //   新增「最新一筆紀錄是否緊急」「超過30天沒互動」兩個提示，一樣用圖示不用顏色
 //
-// 每張卡片（bubble）結構：
-//   body（卡片內容）
-//     ├─ 企業主名    → weight: 'bold', size: 'md', color: '#111214'（近黑，公司規範主色）
-//     ├─ 公司名稱    → size: 'sm', color: '#6b7280'（既有灰色，這輪未列入校正範圍）
-//     └─ 狀態列      → 水平排列
-//          ├─ 合約現狀（左）→ statusIcon() 圖示 + 文字，文字統一近黑色
-//          ├─ 中間（有才顯示，緊急優先於偏離）→ 🚨 緊急 或 ⚠ 偏離
-//          └─ 最後互動時間（右）→ 超過30天加 ⏰ 前綴
+// 單一 bubble 結構：
+//   body
+//     ├─ 標題文字（粗體）+ 分隔線
+//     └─ 每位客戶一段（用 separator 分隔）：
+//          ├─ 企業主名    → weight: 'bold', size: 'md', color: '#111214'
+//          ├─ 公司名稱    → size: 'sm', color: '#6b7280'
+//          ├─ 狀態列      → 合約現狀圖示+文字 | 🚨緊急／⚠偏離（優先顯示緊急）| 最後互動時間（超過30天加⏰）
+//          └─ 按鈕列      → 「查看」（link）+「新增紀錄」（primary，近黑 #111214）
 //
-//   footer（底部按鈕）
-//     ├─ 「查看」按鈕  → style: 'link'（無背景）
-//     └─ 「新增紀錄」  → style: 'primary', color: '#111214'（公司規範近黑，取代原本不合規的鮮豔藍）
-//
-// 若只有 1 位客戶 → 顯示單一 bubble；2 位以上 → 顯示 carousel（左右滑動）
-// 修改卡片大小：改 size: 'kilo'（可選 nano / micro / kilo / mega / giga）
-// 修改卡片內距：改 paddingAll: '16px'
+// 修改 bubble 寬度：改 size: 'giga'（可選 nano / micro / kilo / mega / giga）
 
 export function buildClientListFlex(clients: ClientRow[], title: string) {
-  const bubbles = clients.map(c => ({
-    type: 'bubble',
-    size: 'kilo',
-    body: {
+  const rows = clients.flatMap((c, i) => [
+    ...(i > 0 ? [{ type: 'separator', margin: 'lg' }] : []),
+    {
       type: 'box',
       layout: 'vertical',
-      paddingAll: '16px',
-      spacing: 'sm',
+      margin: i > 0 ? 'lg' : 'md',
+      spacing: 'xs',
       contents: [
-        {
-          type: 'text',
-          text: c['1. 企業主名'] || '—',
-          weight: 'bold',
-          size: 'md',
-          color: '#111827',
-        },
-        {
-          type: 'text',
-          text: c['2. 公司名稱'] || '—',
-          size: 'sm',
-          color: '#6b7280',
-          wrap: true,
-        },
+        { type: 'text', text: c['1. 企業主名'] || '—', weight: 'bold', size: 'md', color: '#111214', wrap: true },
+        { type: 'text', text: c['2. 公司名稱'] || '—', size: 'sm', color: '#6b7280', wrap: true },
         {
           type: 'box',
           layout: 'horizontal',
@@ -175,7 +158,7 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
               text: `${statusIcon(c['9. 月費合約現狀'])} ${c['9. 月費合約現狀'] || '—'}`,
               size: 'xs',
               color: '#111214',
-              flex: 1,
+              flex: 2,
             },
             ...(c.latest_log_urgent
               ? [{ type: 'text', text: '🚨 緊急', size: 'xs', color: '#111214', align: 'end' as const }]
@@ -187,49 +170,50 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
               : []),
           ],
         },
-      ],
-    },
-    footer: {
-      type: 'box',
-      layout: 'horizontal',
-      spacing: 'sm',
-      paddingAll: '12px',
-      contents: [
         {
-          type: 'button',
-          action: {
-            type: 'postback',
-            label: '查看',
-            data: `action=view&id=${c.id}`,
-          },
-          style: 'link',
-          height: 'sm',
-          flex: 1,
-        },
-        {
-          type: 'button',
-          action: {
-            type: 'postback',
-            label: '新增紀錄',
-            data: `action=new_log&cid=${c.id}`,
-          },
-          style: 'primary',
-          height: 'sm',
-          color: '#111214',
-          flex: 1,
+          type: 'box',
+          layout: 'horizontal',
+          spacing: 'sm',
+          margin: 'md',
+          contents: [
+            {
+              type: 'button',
+              action: { type: 'postback', label: '查看', data: `action=view&id=${c.id}` },
+              style: 'link',
+              height: 'sm',
+              flex: 1,
+            },
+            {
+              type: 'button',
+              action: { type: 'postback', label: '新增紀錄', data: `action=new_log&cid=${c.id}` },
+              style: 'primary',
+              height: 'sm',
+              color: '#111214',
+              flex: 1,
+            },
+          ],
         },
       ],
     },
-  }))
-
-  const container = bubbles.length === 1
-    ? bubbles[0]
-    : { type: 'carousel', contents: bubbles }
+  ])
 
   return {
     type: 'flex',
     altText: title,
-    contents: container,
+    contents: {
+      type: 'bubble',
+      size: 'giga',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: [
+          { type: 'text', text: title, weight: 'bold', size: 'lg', color: '#111214' },
+          { type: 'separator', margin: 'md' },
+          ...rows,
+        ],
+      },
+    },
   }
 }
 
