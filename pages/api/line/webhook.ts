@@ -318,23 +318,46 @@ async function enrichWithLatestLog<T extends { id: number }>(clients: T[]) {
   }))
 }
 
-// handleMyClients()：查詢指定顧問的客戶列表（最多 10 位），並附上每位客戶的最後互動時間
-// 「我的客戶」指令 或 查看其他顧問客戶時都會呼叫此函式
-async function handleMyClients(replyToken: string, consultant: { id: string; name: string }) {
+// handleMyClients()：查詢指定顧問的客戶列表（每頁 PAGE_SIZE 位），並附上每位客戶的最後互動時間
+// 「我的客戶」指令 或 查看其他顧問客戶時都會呼叫此函式；offset 用於分頁（上一頁/下一頁）
+const PAGE_SIZE = 10
+
+async function handleMyClients(
+  replyToken: string,
+  consultant: { id: string; name: string },
+  offset: number = 0,
+) {
+  // 多撈一筆判斷是否還有下一頁，不用另外查總數
   const { data: clients } = await supabase
     .from('線上All企業主總表')
     .select(`id, "1. 企業主名", "2. 公司名稱", "9. 月費合約現狀", "Issue（偏離狀態）"`)
     .eq('consultant_id', consultant.id)
     .order('id')
-    .limit(10)
+    .range(offset, offset + PAGE_SIZE)
 
   if (!clients?.length) {
-    await replyMessage(replyToken, [{ type: 'text', text: '目前沒有負責的客戶。' }])
+    await replyMessage(replyToken, [{
+      type: 'text',
+      text: offset === 0 ? '目前沒有負責的客戶。' : '沒有更多客戶了。',
+    }])
     return
   }
 
-  const enriched = await enrichWithLatestLog(clients)
-  await replyMessage(replyToken, [buildClientListFlex(enriched, `我的客戶（${consultant.name}）`)])
+  const hasNext = clients.length > PAGE_SIZE
+  const pageClients = hasNext ? clients.slice(0, PAGE_SIZE) : clients
+
+  const enriched = await enrichWithLatestLog(pageClients)
+  const page = Math.floor(offset / PAGE_SIZE) + 1
+  const title = `我的客戶（${consultant.name}）${page > 1 ? ` 第${page}頁` : ''}`
+
+  await replyMessage(replyToken, [
+    buildClientListFlex(enriched, title, {
+      consultantId: consultant.id,
+      consultantName: consultant.name,
+      prevOffset: offset > 0 ? Math.max(0, offset - PAGE_SIZE) : null,
+      nextOffset: hasNext ? offset + PAGE_SIZE : null,
+    }),
+  ])
 }
 
 // handleSearch()：依關鍵字模糊搜尋企業主名稱或公司名稱（最多回傳 5 筆）
@@ -360,6 +383,7 @@ async function handleSearch(replyToken: string, term: string) {
 //   bind              → 綁定顧問身份（不需先登入）
 //   my_clients        → 查看自己的客戶列表
 //   consultant_clients → 查看指定顧問的客戶列表
+//   clients_page      → 客戶列表翻頁（上一頁/下一頁）
 //   search            → 進入搜尋模式（等待使用者輸入關鍵字）
 //   view              → 查看單一客戶詳情（顯示詳情 Flex Message）
 //   new_log           → 新增互動紀錄（進入多輪對話，等待使用者輸入內容）
@@ -397,6 +421,14 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
       const targetId = params.get('id')!
       const targetName = decodeURIComponent(params.get('name') ?? '未知顧問')
       await handleMyClients(replyToken, { id: targetId, name: targetName })
+      break
+    }
+
+    case 'clients_page': {
+      const targetId = params.get('id')!
+      const targetName = decodeURIComponent(params.get('name') ?? '未知顧問')
+      const offset = Number(params.get('offset') ?? '0')
+      await handleMyClients(replyToken, { id: targetId, name: targetName }, offset)
       break
     }
 

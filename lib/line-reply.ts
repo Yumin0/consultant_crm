@@ -133,8 +133,18 @@ type ClientRow = {
 //          右（flex 2）：🚨緊急／⚠偏離（優先顯示緊急，靠右）/ 最後互動時間（超過30天加⏰）
 //
 // 修改 bubble 寬度：改 size: 'giga'（可選 nano / micro / kilo / mega / giga）
+//
+// paging（選填）：有給就在清單最下面加「‹ 上一頁」「下一頁 ›」按鈕
+//   prevOffset/nextOffset 為 null 代表沒有該方向的頁面，不顯示對應按鈕
 
-export function buildClientListFlex(clients: ClientRow[], title: string) {
+type ListPaging = {
+  consultantId: string
+  consultantName: string
+  prevOffset: number | null
+  nextOffset: number | null
+}
+
+export function buildClientListFlex(clients: ClientRow[], title: string, paging?: ListPaging) {
   const rows = clients.flatMap((c, i) => [
     ...(i > 0 ? [{ type: 'separator', margin: 'md' }] : []),
     {
@@ -187,6 +197,32 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
     },
   ])
 
+  const pageButton = (label: string, offset: number) => ({
+    type: 'button',
+    style: 'secondary',
+    height: 'sm',
+    color: '#F2F2F3',
+    flex: 1,
+    action: {
+      type: 'postback',
+      label,
+      data: `action=clients_page&id=${paging!.consultantId}&name=${encodeURIComponent(paging!.consultantName)}&offset=${offset}`,
+    },
+  })
+
+  const pagerRow = paging && (paging.prevOffset !== null || paging.nextOffset !== null)
+    ? [{
+        type: 'box',
+        layout: 'horizontal',
+        margin: 'lg',
+        spacing: 'sm',
+        contents: [
+          ...(paging.prevOffset !== null ? [pageButton('‹ 上一頁', paging.prevOffset)] : []),
+          ...(paging.nextOffset !== null ? [pageButton('下一頁 ›', paging.nextOffset)] : []),
+        ],
+      }]
+    : []
+
   return {
     type: 'flex',
     altText: title,
@@ -202,6 +238,7 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
           { type: 'text', text: '點任一行查看詳情與新增紀錄', size: 'xs', color: '#9599A4', margin: 'xs' },
           { type: 'separator', margin: 'md' },
           ...rows,
+          ...pagerRow,
         ],
       },
     },
