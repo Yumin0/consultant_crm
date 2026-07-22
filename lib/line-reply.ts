@@ -368,6 +368,75 @@ export function buildClientDetailFlex(client: ClientDetail, logs: LogRow[]) {
   }
 }
 
+// ─── 企業主介紹卡（原型）：4 張主題卡 Carousel ────────────────────────────────
+// buildClientProfileCarousel()：依 Chloe 需求文件的 4 象限設計，改用 carousel 呈現
+//   （2026-07-22 視覺原型，資料來源尚未定案，目前用假資料測試樣式）
+//
+// 每張卡片：
+//   header → 姓名/公司（小字，淺色）+ 圖示與主題標題（白字），顏色由深藍到淺藍漸層
+//   body   → 條列內容
+//   footer → 只有「行動計畫」卡才有「＋新增紀錄」按鈕，其餘卡片純瀏覽用
+
+type ProfileCard = {
+  icon: string
+  title: string
+  color: string
+  lines: string[]
+  newLogClientId?: number
+}
+
+export function buildClientProfileCarousel(
+  clientName: string,
+  companyName: string,
+  cards: ProfileCard[],
+) {
+  const bubbles = cards.map(card => ({
+    type: 'bubble',
+    size: 'kilo',
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '16px',
+      backgroundColor: card.color,
+      contents: [
+        { type: 'text', text: `${clientName}・${companyName}`, size: 'xs', color: '#dbeafe' },
+        { type: 'text', text: `${card.icon} ${card.title}`, color: '#ffffff', weight: 'bold', size: 'md', margin: 'xs', wrap: true },
+      ],
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '16px',
+      spacing: 'sm',
+      contents: card.lines.length > 0
+        ? card.lines.map(line => ({ type: 'text', text: line, size: 'sm', color: '#374151', wrap: true }))
+        : [{ type: 'text', text: '（暫無資料）', size: 'sm', color: '#9ca3af' }],
+    },
+    ...(card.newLogClientId
+      ? {
+          footer: {
+            type: 'box',
+            layout: 'vertical',
+            paddingAll: '12px',
+            contents: [{
+              type: 'button',
+              action: { type: 'postback', label: '＋ 新增紀錄', data: `action=new_log&cid=${card.newLogClientId}` },
+              style: 'primary',
+              height: 'sm',
+              color: card.color,
+            }],
+          },
+        }
+      : {}),
+  }))
+
+  return {
+    type: 'flex',
+    altText: `${clientName} 企業主介紹卡`,
+    contents: { type: 'carousel', contents: bubbles },
+  }
+}
+
 // ─── 互動紀錄通知：推播給負責顧問 ──────────────────────────────────────────
 // buildLogNotificationFlex()：有人為客戶新增互動紀錄時，推播給負責顧問
 //
