@@ -226,6 +226,7 @@ type LogRow = {
   created_at: string
   priority: string
   consultants: { name: string } | null
+  category?: { name: string; icon: string | null } | null
 }
 
 type ClientDetail = {
@@ -273,6 +274,9 @@ export function buildClientDetailFlex(client: ClientDetail, logs: LogRow[]) {
         backgroundColor: log.priority === 'urgent' ? '#fef2f2' : '#f9fafb',
         cornerRadius: '8px',
         contents: [
+          ...(log.category?.name
+            ? [{ type: 'text', text: `${log.category.icon ?? ''} ${log.category.name}`.trim(), size: 'xs', color: '#2563eb', weight: 'bold' as const }]
+            : []),
           ...(log.priority === 'urgent'
             ? [{ type: 'text', text: '🚨 緊急', size: 'xs', color: '#dc2626', weight: 'bold' as const }]
             : []),

@@ -92,6 +92,31 @@ async function clearSession(lineUserId: string) {
   await supabase.from('bot_sessions').delete().eq('line_user_id', lineUserId)
 }
 
+// fetchVisibleClientDetail()：撈客戶資料 + 最近10筆互動紀錄（含分類），
+//   依 viewerRole 過濾敏感資料類別的紀錄後，取最新3筆回傳
+//   供「查看客戶詳情」postback 與「新增紀錄成功後」共用，避免重複邏輯
+async function fetchVisibleClientDetail(clientId: number | string, viewerRole: string | undefined) {
+  const [{ data: client }, { data: rawLogs }] = await Promise.all([
+    supabase
+      .from('線上All企業主總表')
+      .select(`id, "1. 企業主名", "2. 公司名稱", "9. 月費合約現狀", "11. 學員動態", "Issue（偏離狀態）", "Action（處置）"`)
+      .eq('id', clientId)
+      .maybeSingle(),
+    supabase
+      .from('client_logs')
+      .select('content, created_at, priority, consultants(name), category:log_categories(name, icon, is_sensitive)')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
+
+  const visibleLogs = (rawLogs ?? [])
+    .filter((log: any) => !log.category?.is_sensitive || viewerRole === '專家')
+    .slice(0, 3)
+
+  return { client, visibleLogs }
+}
+
 // handleMonthlyStatusEntry()：進入 Maiagent AI 對話模式
 // 設定 session 狀態為 ai_chat，並發送提示訊息
 async function handleMonthlyStatusEntry(replyToken: string, lineUserId: string) {
@@ -174,18 +199,27 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
         await replyMessage(replyToken, [{ type: 'text', text: '已取消新增紀錄。' }])
         return
       }
-      await supabase.from('client_logs').insert({
-        client_id: Number(client_id),
-        consultant_id,
-        category_id: category_id ? Number(category_id) : null,
-        content: text.trim(),
-        priority: 'normal',
-      })
+      // 新增紀錄、查詢自己的角色（過濾敏感資料用）平行執行，減少回覆前的等待時間
+      const [, viewerConsultant] = await Promise.all([
+        supabase.from('client_logs').insert({
+          client_id: Number(client_id),
+          consultant_id,
+          category_id: category_id ? Number(category_id) : null,
+          content: text.trim(),
+          priority: 'normal',
+        }),
+        getConsultant(lineUserId),
+      ])
       await clearSession(lineUserId)
-      await replyMessage(replyToken, [{
-        type: 'text',
-        text: `✅ 已新增「${client_name}」的互動紀錄。`,
-      }])
+
+      // 存完直接回傳客戶詳情卡片，讓顧問看到剛剛那筆紀錄實際存到哪裡、分類是否正確
+      const { client, visibleLogs } = await fetchVisibleClientDetail(client_id, viewerConsultant?.role)
+      const confirmMsg = { type: 'text', text: `✅ 已新增「${client_name}」的互動紀錄。` }
+      await replyMessage(
+        replyToken,
+        client ? [confirmMsg, buildClientDetailFlex(client, visibleLogs as any)] : [confirmMsg],
+      )
+
       await notifyClientLog(
         Number(client_id),
         { content: text.trim(), priority: 'normal' },
@@ -362,30 +396,13 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
       break
 
     case 'view': {
-      const clientId = params.get('id')
-      const { data: client } = await supabase
-        .from('線上All企業主總表')
-        .select(`id, "1. 企業主名", "2. 公司名稱", "9. 月費合約現狀", "11. 學員動態", "Issue（偏離狀態）", "Action（處置）"`)
-        .eq('id', clientId)
-        .maybeSingle()
+      const clientId = params.get('id')!
+      const { client, visibleLogs } = await fetchVisibleClientDetail(clientId, consultant.role)
 
       if (!client) {
         await replyMessage(replyToken, [{ type: 'text', text: '找不到此客戶。' }])
         break
       }
-
-      // 多撈一些筆數，過濾掉敏感資料後再取最新 3 筆，避免非專家看到的筆數被壓縮
-      const { data: rawLogs } = await supabase
-        .from('client_logs')
-        .select('content, created_at, priority, consultants(name), category:log_categories(is_sensitive)')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      // 敏感資料類別的紀錄，只有角色為「專家」的顧問看得到，一般顧問整條不顯示
-      const visibleLogs = (rawLogs ?? [])
-        .filter((log: any) => !log.category?.is_sensitive || consultant.role === '專家')
-        .slice(0, 3)
 
       await replyMessage(replyToken, [buildClientDetailFlex(client, visibleLogs as any)])
       break
