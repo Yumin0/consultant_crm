@@ -320,7 +320,8 @@ async function enrichWithLatestLog<T extends { id: number }>(clients: T[]) {
 
 // handleMyClients()：查詢指定顧問的客戶列表（每頁 PAGE_SIZE 位），並附上每位客戶的最後互動時間
 // 「我的客戶」指令 或 查看其他顧問客戶時都會呼叫此函式；offset 用於分頁（上一頁/下一頁）
-const PAGE_SIZE = 10
+// PAGE_SIZE = 6：對齊手機一屏大約看得完的筆數，不用在同一則訊息裡先滑一次才能翻頁
+const PAGE_SIZE = 6
 
 async function handleMyClients(
   replyToken: string,
