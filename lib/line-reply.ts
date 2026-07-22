@@ -175,6 +175,14 @@ export function buildClientListFlex(clients: ClientRow[], title: string) {
               : []),
           ],
         },
+        {
+          type: 'text',
+          text: '›',
+          size: 'lg',
+          color: '#9599A4',
+          flex: 0,
+          gravity: 'center',
+        },
       ],
     },
   ])
