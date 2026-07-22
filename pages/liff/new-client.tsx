@@ -32,11 +32,6 @@ export default function NewClientLiff() {
       // 用 LINE userId 比對已綁定的顧問，自動帶入
       if (liff.isLoggedIn()) {
         const profile = await liff.getProfile()
-        const matched = list.find((_, i) => {
-          // 這裡只能在前端比對，需要呼叫 API 查詢
-          return false
-        })
-        // 呼叫後端查詢綁定的顧問
         const meRes = await fetch(`/api/crm/consultants?line_user_id=${profile.userId}`)
         if (meRes.ok) {
           const me: Consultant | null = await meRes.json()
@@ -68,6 +63,7 @@ export default function NewClientLiff() {
         status,
         consultant_id: consultantId || undefined,
         consultant_name: selected?.name,
+        added_by_consultant_id: currentConsultantId || undefined,
       }),
     })
 

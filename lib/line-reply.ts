@@ -535,6 +535,31 @@ export function buildNewClientNotificationFlex(
   }
 }
 
+// ─── 快速紀錄：分類選單 Quick Reply ──────────────────────────────────────────
+// buildCategoryQuickReply()：按「新增紀錄」後，先讓顧問選擇這筆紀錄屬於哪個類別
+//   只傳入 is_archived = false 的現行 5 大類（呼叫端負責篩選）
+
+export function buildCategoryQuickReply(
+  categories: { id: number; name: string; icon: string | null }[],
+  clientName: string,
+) {
+  return {
+    type: 'text',
+    text: `📋 請選擇「${clientName}」這筆紀錄的類別：`,
+    quickReply: {
+      items: categories.slice(0, 13).map(c => ({
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: `${c.icon ?? ''} ${c.name}`.trim().slice(0, 20),
+          data: `action=new_log_category&cat_id=${c.id}&cat_name=${encodeURIComponent(c.name)}`,
+          displayText: c.name,
+        },
+      })),
+    },
+  }
+}
+
 // ─── 新增客戶：LIFF 表單入口 ─────────────────────────────────────────────────
 // buildNewClientMessage()：回傳一個 bubble，內含「開啟新增客戶表單」按鈕
 // 按鈕動作為 uri 類型，點擊後直接開啟 LIFF 表單頁面

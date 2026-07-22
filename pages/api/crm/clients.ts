@@ -9,12 +9,13 @@ const supabase = createClient(
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
-    const { name, company, status, consultant_id, consultant_name } = req.body as {
+    const { name, company, status, consultant_id, consultant_name, added_by_consultant_id } = req.body as {
       name: string
       company?: string
       status?: string
       consultant_id?: string
       consultant_name?: string
+      added_by_consultant_id?: string
     }
 
     if (!name?.trim()) return res.status(400).json({ error: '企業主名為必填' })
@@ -39,8 +40,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         '1. 企業主名': data['1. 企業主名'],
         '2. 公司名稱': company?.trim() || null,
         '9. 月費合約現狀': status?.trim() || null,
+        consultant_id: consultant_id || null,
       },
-      consultant_id || null,
+      // added_by_consultant_id：實際操作 LIFF 表單的人；若前端沒帶（舊版相容）就退回用 consultant_id
+      added_by_consultant_id || consultant_id || null,
     ).catch(console.error)
 
     return res.status(201).json(data)

@@ -7,6 +7,7 @@ import {
   buildClientListFlex,
   buildClientDetailFlex,
   buildNewClientMessage,
+  buildCategoryQuickReply,
 } from '../../../lib/line-reply'
 import { notifyClientLog } from '../../../lib/notify'
 
@@ -59,10 +60,10 @@ async function callMaiagent(text: string): Promise<string> {
 async function getConsultant(lineUserId: string) {
   const { data } = await supabase
     .from('consultants')
-    .select('id, name')
+    .select('id, name, role')
     .eq('line_user_id', lineUserId)
     .maybeSingle()
-  return data as { id: string; name: string } | null
+  return data as { id: string; name: string; role: string } | null
 }
 
 // getSession()：讀取使用者目前的對話狀態（state）與暫存資料（data）
@@ -153,8 +154,21 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
   if (!isRichMenuKeyword) {
     const session = await getSession(lineUserId)
 
+    if (session?.state === 'awaiting_category') {
+      if (text.trim() === '取消') {
+        await clearSession(lineUserId)
+        await replyMessage(replyToken, [{ type: 'text', text: '已取消新增紀錄。' }])
+        return
+      }
+      await replyMessage(replyToken, [{
+        type: 'text',
+        text: '請點選上方選單中的類別按鈕（或輸入「取消」放棄）。',
+      }])
+      return
+    }
+
     if (session?.state === 'awaiting_content') {
-      const { client_id, client_name, consultant_id } = session.data
+      const { client_id, client_name, consultant_id, category_id } = session.data
       if (text.trim() === '取消') {
         await clearSession(lineUserId)
         await replyMessage(replyToken, [{ type: 'text', text: '已取消新增紀錄。' }])
@@ -163,6 +177,7 @@ async function handleText(replyToken: string, lineUserId: string, text: string) 
       await supabase.from('client_logs').insert({
         client_id: Number(client_id),
         consultant_id,
+        category_id: category_id ? Number(category_id) : null,
         content: text.trim(),
         priority: 'normal',
       })
@@ -359,14 +374,20 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
         break
       }
 
-      const { data: logs } = await supabase
+      // 多撈一些筆數，過濾掉敏感資料後再取最新 3 筆，避免非專家看到的筆數被壓縮
+      const { data: rawLogs } = await supabase
         .from('client_logs')
-        .select('content, created_at, priority, consultants(name)')
+        .select('content, created_at, priority, consultants(name), category:log_categories(is_sensitive)')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false })
-        .limit(3)
+        .limit(10)
 
-      await replyMessage(replyToken, [buildClientDetailFlex(client, (logs ?? []) as any)])
+      // 敏感資料類別的紀錄，只有角色為「專家」的顧問看得到，一般顧問整條不顯示
+      const visibleLogs = (rawLogs ?? [])
+        .filter((log: any) => !log.category?.is_sensitive || consultant.role === '專家')
+        .slice(0, 3)
+
+      await replyMessage(replyToken, [buildClientDetailFlex(client, visibleLogs as any)])
       break
     }
 
@@ -385,14 +406,47 @@ async function handlePostback(replyToken: string, lineUserId: string, data: stri
         .maybeSingle()
 
       const clientName = client?.['1. 企業主名'] ?? '該客戶'
-      await setSession(lineUserId, 'awaiting_content', {
+
+      // 快速紀錄 5 大類：只列現行未封存的分類，先選類別再輸入內容
+      const { data: categories } = await supabase
+        .from('log_categories')
+        .select('id, name, icon')
+        .eq('is_archived', false)
+        .order('sort_order')
+
+      await setSession(lineUserId, 'awaiting_category', {
         client_id: cid,
         client_name: clientName,
         consultant_id: consultant.id,
       })
+      await replyMessage(replyToken, [buildCategoryQuickReply(categories ?? [], clientName)])
+      break
+    }
+
+    case 'new_log_category': {
+      const session = await getSession(lineUserId)
+      if (session?.state !== 'awaiting_category') {
+        await replyMessage(replyToken, [{
+          type: 'text',
+          text: '這個選單已經過期了，請重新按「新增紀錄」。',
+        }])
+        break
+      }
+
+      const catId = params.get('cat_id')!
+      const catName = decodeURIComponent(params.get('cat_name') ?? '其他')
+      const { client_id, client_name, consultant_id } = session.data
+
+      await setSession(lineUserId, 'awaiting_content', {
+        client_id,
+        client_name,
+        consultant_id,
+        category_id: catId,
+        category_name: catName,
+      })
       await replyMessage(replyToken, [{
         type: 'text',
-        text: `📝 請輸入對「${clientName}」的互動紀錄：\n\n（輸入「取消」可放棄）`,
+        text: `📝 類別：${catName}\n請輸入對「${client_name}」的互動紀錄：\n\n（輸入「取消」可放棄）`,
       }])
       break
     }
