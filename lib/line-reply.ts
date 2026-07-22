@@ -177,8 +177,6 @@ export function buildClientListFlex(clients: ClientRow[], title: string, paging?
           contents: [
             ...(c.latest_log_urgent
               ? [{ type: 'text', text: '🚨 緊急', size: 'xs', color: '#111214', align: 'end' as const }]
-              : c['Issue（偏離狀態）']
-              ? [{ type: 'text', text: '⚠ 偏離', size: 'xs', color: '#111214', align: 'end' as const }]
               : []),
             ...(c.latest_log_at
               ? [{ type: 'text', text: `${isStale(c.latest_log_at) ? '⏰ ' : ''}${relativeTime(c.latest_log_at)}`, size: 'xs', color: '#9599A4', align: 'end' as const }]
